@@ -1,1 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visual Evolution Simulator V7</title> <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+
+    <style>
+        body {
+            font-family: 'Press Start 2P', cursive; margin: 0; overflow: hidden;
+            background-color: #1a1a1a; color: #00ff00;
+        }
+        #canvasContainer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; cursor: default; }
+        #canvasContainer.targeting { cursor: crosshair; } /* Cursor for targeting */
+        canvas { display: block; width: 100%; height: 100%; }
+        #uiContainer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; flex-direction: column; justify-content: space-between;
+            align-items: center; padding: 1rem; z-index: 2; pointer-events: none;
+        }
+        .info-display, .controls { pointer-events: auto; }
+        .info-display {
+            background-color: rgba(42, 42, 42, 0.8); border: 2px dashed #00ff00;
+            padding: 0.5rem 1rem; text-align: center; width: 90%; max-width: 550px;
+            margin-top: 1rem; font-size: 0.8rem;
+        }
+        .info-display p { margin: 0.3rem 0; }
+        .controls-container {
+            display: flex; flex-direction: column; align-items: center;
+            width: 100%; max-width: 700px;
+            margin-bottom: 1rem;
+        }
+        .controls {
+             background-color: rgba(42, 42, 42, 0.8); border: 2px solid #00ff00;
+             padding: 0.5rem; margin-top: 0.5rem; text-align: center;
+             display: flex; flex-wrap: wrap; justify-content: center; gap: 5px;
+        }
+        .controls h3 { width: 100%; margin-bottom: 0.5rem; font-size: 0.9rem; text-align: center; }
+        .game-button {
+            font-family: 'Press Start 2P', cursive; background-color: #4a4a4a;
+            border: 2px solid #00ff00; color: #00ff00; padding: 8px 12px;
+            cursor: pointer; text-transform: uppercase; transition: all 0.2s;
+            box-shadow: 2px 2px 0px #00aa00; border-radius: 0; font-size: 0.7rem;
+        }
+        .game-button:hover { background-color: #6a6a6a; color: #ffffff; box-shadow: 2px 2px 0px #00dd00; }
+        .game-button:active { background-color: #3a3a3a; box-shadow: 1px 1px 0px #008800; transform: translate(1px, 1px); }
+        .game-button.meteor-button {
+             background-color: #800000; border-color: #ff4500; color: #ffdddd;
+             box-shadow: 2px 2px 0px #cc0000;
+        }
+        .game-button.meteor-button:hover { background-color: #a00000; color: #ffffff; box-shadow: 2px 2px 0px #ff3333; }
+        .game-button.meteor-button:active { background-color: #600000; box-shadow: 1px 1px 0px #990000; }
+
+        #message { font-size: 0.8rem; min-height: 1.2em; color: #ffff00; text-shadow: 1px 1px 1px #333; }
+        #loadingOverlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0, 0, 0, 0.85); z-index: 10;
+            display: flex; justify-content: center; align-items: center;
+            color: #00ff00; font-size: 1.5rem; text-align: center;
+            transition: opacity 0.5s ease-out;
+        }
+        #loadingOverlay.hidden { opacity: 0; pointer-events: none; }
+        /* Responsive */
+        @media (max-width: 640px) {
+            .info-display { max-width: 95%; padding: 0.4rem 0.8rem; font-size: 0.7rem; }
+            .controls h3 { font-size: 0.8rem; }
+            .game-button { padding: 6px 10px; font-size: 0.6rem; }
+            #message { font-size: 0.7rem; }
+            #loadingOverlay { font-size: 1.2rem; }
+        }
+        @media (max-height: 500px) {
+             .info-display { margin-top: 0.5rem; }
+             .controls-container { margin-bottom: 0.5rem; }
+             .controls { padding: 0.3rem; }
+        }
+    </style>
+</head>
+<body>
+    <div id="loadingOverlay">
+        <div>Loading Assets...<br><span id="loadingProgress">0 / 0</span></div>
+    </div>
+
+    <div id="canvasContainer">
+        <canvas id="evolutionCanvas"></canvas>
+    </div>
+
+    <div id="uiContainer">
+        <div id="infoDisplay" class="info-display">
+            <p>Year: <span id="year">0</span> | Era: <span id="era">Stone Age</span> | Pop: <span id="population">10</span> | Climate: <span id="climate">Normal</span></p>
+            <p>Tech: <span id="techProgress">0</span> / <span id="techGoal">200</span> | Speed: <span id="timeSpeed">1x</span></p>
+             <p>Buildings: <span id="buildingCount">0</span> | People: <span id="peopleCount">0</span></p>
+            <p class="mt-1"><span id="message">Loading...</span></p>
+        </div>
+
+        <div class="controls-container">
+             <div class="controls time-controls">
+                 <h3 class="mb-1">Time</h3>
+                 <button id="slowTimeBtn" class="game-button">Slow</button>
+                 <button id="speedTimeBtn" class="game-button">Fast</button>
+             </div>
+             <div class="controls intervention-controls">
+                 <h3 class="mb-1">Interventions</h3>
+                 <button id="giveFireBtn" class="game-button">Fire (+T)</button>
+                 <button id="destroyHomesBtn" class="game-button">Raze (-P)</button>
+                 <button id="inspireBtn" class="game-button">Inspire (+T)</button>
+                 <button id="plagueBtn" class="game-button">Plague (--P)</button>
+                 <button id="meteorBtn" class="game-button meteor-button">Meteor Strike</button>
+             </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Three.js Setup ---
+        let scene, camera, renderer, clock, textureLoader, gltfLoader, loadingManager;
+        let worldPlane, buildingsGroup, peopleGroup;
+        let buildingPrefabs = {};
+        let personPrefab;
+        let people = [];
+        let raycaster, mouse;
+        let meteorMesh = null;
+        let meteorTarget = null;
+
+        // --- Camera Control Variables ---
+        let isDragging = false;
+        let previousMousePosition = { x: 0, y: 0 };
+        let cameraTarget = new THREE.Vector3(0, 0, 0);
+        let cameraRadius = 30;
+        let cameraPhi = Math.PI / 3.5;
+        let cameraTheta = Math.PI / 4;
+
+        // --- Game State Variables ---
+        let year = 0;
+        let population = 10;
+        let techProgress = 0;
+        let currentEraIndex = 0;
+        let timeMultiplier = 1;
+        let timeAccumulator = 0;
+        let messageTimeout;
+        let needsBuildingUpdate = true;
+        let needsPeopleUpdate = true;
+        let gameStarted = false;
+        let isSelectingMeteorTarget = false;
+        let climateState = 'normal';
+        let baseGroundColor = new THREE.Color(0x228B22);
+        let coldGroundColor = new THREE.Color(0xeeeeff);
+
+        // --- Game Configuration ---
+        const spawnRadius = 20;
+        const maxBuildings = 150; // Keep relatively low for performance with loaded models
+        const maxVisiblePeople = 50;
+        const personSpeed = 1.5;
+        const secondsPerYear = 1.0; // Slower game year
+        const meteorStartY = 50;
+        const meteorSpeed = 40;
+        const meteorImpactRadius = 5;
+
+        // --- Era Configuration (SLOWER PROGRESSION) ---
+        const eras = [
+            { name: "Stone Age", techGoal: 200, popGrowth: 0.05, baseTechRate: 0.8, modelKey: 'hut' },
+            { name: "Bronze Age", techGoal: 1000, popGrowth: 0.1, baseTechRate: 1.5, modelKey: 'simpleHouse' },
+            { name: "Iron Age", techGoal: 4000, popGrowth: 0.15, baseTechRate: 4, modelKey: 'simpleHouse' }, // Reuses simple house
+            { name: "Classical Age", techGoal: 10000, popGrowth: 0.1, baseTechRate: 8, modelKey: 'stoneBuilding' }, // Using keep model
+            { name: "Medieval Age", techGoal: 20000, popGrowth: 0.08, baseTechRate: 12, modelKey: 'stoneBuilding' }, // Reuses keep model
+            { name: "Renaissance", techGoal: 50000, popGrowth: 0.12, baseTechRate: 20, modelKey: 'ornateBuilding' },
+            { name: "Industrial Age", techGoal: 100000, popGrowth: 0.2, baseTechRate: 40, modelKey: 'factory' },
+            { name: "Information Age", techGoal: 200000, popGrowth: 0.1, baseTechRate: 80, modelKey: 'modernBuilding' },
+            { name: "Future Age", techGoal: Infinity, popGrowth: 0.05, baseTechRate: 150, modelKey: 'futureBuilding' }
+        ];
+
+        // --- Model Paths (Updated with User's URLs) ---
+        const modelPaths = {
+            'hut': 'https://github.com/Jimmyjonny1028/dfsfsefsaq/raw/refs/heads/main/hutgbl.glb',
+            'simpleHouse': 'https://github.com/Jimmyjonny1028/dfsfsefsaq/raw/refs/heads/main/simplehouse.glb',
+            'stoneBuilding': 'https://github.com/Jimmyjonny1028/dfsfsefsaq/raw/refs/heads/main/ornatebuilding.glb', // Assuming ornate is stone for now
+            'ornateBuilding': 'https://github.com/Jimmyjonny1028/dfsfsefsaq/raw/refs/heads/main/ornatebuilding.glb',
+            'factory': 'https://github.com/Jimmyjonny1028/dfsfsefsaq/raw/refs/heads/main/factorybuild(1).glb',
+            'modernBuilding': 'https://github.com/Jimmyjonny1028/dfsfsefsaq/raw/refs/heads/main/modernbuilding.glb',
+            'futureBuilding': 'https://github.com/Jimmyjonny1028/dfsfsefsaq/raw/refs/heads/main/futuristic%20build.glb',
+            'person': 'https://github.com/Jimmyjonny1028/dfsfsefsaq/raw/refs/heads/main/personfi.glb',
+            'meteor': 'generatePlaceholder' // Keep meteor as placeholder for now
+        };
+
+        // --- Texture URLs (Only needed for placeholders now) ---
+        const textureUrls = {
+            // wood: 'https://placehold.co/128x128/8B4513/654321.png?text=Wood', // Less needed now
+            // stone: 'https://placehold.co/128x128/778899/556677.png?text=Stone',
+            // brick: 'https://placehold.co/128x128/B22222/800000.png?text=Brick',
+            // metal: 'https://placehold.co/128x128/A9A9A9/696969.png?text=Metal',
+            // ornate: 'https://placehold.co/128x128/FFDEAD/D2B48C.png?text=Ornate',
+            // modern: 'https://placehold.co/128x128/ADD8E6/87CEEB.png?text=Glass',
+            // future: 'https://placehold.co/128x128/E0FFFF/AFEEEE.png?text=SciFi',
+            rock: 'https://placehold.co/64x64/696969/FFFFFF.png?text=Rock', // For meteor
+            snow: 'https://placehold.co/64x64/FFFFFF/CCCCCC.png?text=+',
+            grass: 'https://placehold.co/64x64/228B22/228B22.png?text=+'
+        };
+        let loadedTextures = {};
+
+        // --- DOM Elements ---
+        const yearDisplay = document.getElementById('year'); const eraDisplay = document.getElementById('era'); const populationDisplay = document.getElementById('population'); const techProgressDisplay = document.getElementById('techProgress'); const techGoalDisplay = document.getElementById('techGoal'); const timeSpeedDisplay = document.getElementById('timeSpeed'); const messageDisplay = document.getElementById('message'); const buildingCountDisplay = document.getElementById('buildingCount'); const peopleCountDisplay = document.getElementById('peopleCount'); const climateDisplay = document.getElementById('climate'); const slowTimeBtn = document.getElementById('slowTimeBtn'); const speedTimeBtn = document.getElementById('speedTimeBtn'); const giveFireBtn = document.getElementById('giveFireBtn'); const destroyHomesBtn = document.getElementById('destroyHomesBtn'); const inspireBtn = document.getElementById('inspireBtn'); const plagueBtn = document.getElementById('plagueBtn'); const meteorBtn = document.getElementById('meteorBtn'); const canvas = document.getElementById('evolutionCanvas'); const canvasContainer = document.getElementById('canvasContainer'); const loadingOverlay = document.getElementById('loadingOverlay'); const loadingProgress = document.getElementById('loadingProgress');
+
+
+        // --- Load Texture Function with Caching ---
+        function loadTexture(url, onLoadCallback) {
+            if (loadedTextures[url]) {
+                const texture = loadedTextures[url];
+                if (onLoadCallback) onLoadCallback(texture);
+                return texture;
+            } else {
+                return textureLoader.load(url, (texture) => {
+                    texture.wrapS = THREE.RepeatWrapping;
+                    texture.wrapT = THREE.RepeatWrapping;
+                    loadedTextures[url] = texture;
+                    if (onLoadCallback) onLoadCallback(texture);
+                }, undefined, (err) => { console.error(`Error loading texture: ${url}`, err); });
+            }
+        }
+
+        // --- Placeholder Model Generation (Only for Meteor now) ---
+        function generatePlaceholderModel(eraKey) {
+            const group = new THREE.Group();
+            let geometry, material, mesh;
+            let textureUrl = null;
+
+            if (eraKey === 'meteor') {
+                 textureUrl = textureUrls.rock;
+                 const materialOptions = { roughness: 0.9, metalness: 0.1 };
+                 if (textureUrl) {
+                     materialOptions.map = loadTexture(textureUrl);
+                 } else {
+                     materialOptions.color = 0x696969; // DimGray fallback
+                 }
+                 material = new THREE.MeshStandardMaterial(materialOptions);
+                 geometry = new THREE.SphereGeometry(1.5, 16, 12);
+                 mesh = new THREE.Mesh(geometry, material);
+                 material.emissive = new THREE.Color(0xff4500); material.emissiveIntensity = 0.3;
+                 group.add(mesh);
+            } else {
+                 // Fallback for any other unexpected placeholder request
+                 console.warn(`Generating fallback box for unexpected key: ${eraKey}`);
+                 geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+                 mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({color: 0xff00ff})); // Magenta error box
+                 mesh.position.y = 0.1;
+                 group.add(mesh);
+            }
+
+             const box = new THREE.Box3().setFromObject(group);
+             group.userData.baseOffsetY = -box.min.y;
+             group.userData.height = Math.max(0.1, box.max.y - box.min.y);
+
+            return group;
+        }
+
+
+        // --- Asset Loading (Revised Logic) ---
+        function loadAssets() {
+            loadingManager = new THREE.LoadingManager();
+            gltfLoader = new THREE.GLTFLoader(loadingManager);
+
+            let assetsLoadedCount = 0;
+            const totalAssetsToLoad = Object.keys(modelPaths).length;
+            loadingProgress.textContent = `${assetsLoadedCount} / ${totalAssetsToLoad}`;
+
+            const assetReady = (key) => {
+                assetsLoadedCount++;
+                console.log(`Asset ready: ${key} (${assetsLoadedCount}/${totalAssetsToLoad})`);
+                loadingProgress.textContent = `${assetsLoadedCount} / ${totalAssetsToLoad}`;
+                if (assetsLoadedCount === totalAssetsToLoad) {
+                    setTimeout(() => {
+                         console.log('Loading complete!');
+                         loadingOverlay.classList.add('hidden');
+                         setTimeout(() => { loadingOverlay.style.display = 'none'; }, 500);
+                         startGame();
+                    }, 50);
+                }
+            };
+
+            loadingManager.onError = (url) => console.error('Loading manager error for: ' + url);
+
+            for (const key in modelPaths) {
+                const path = modelPaths[key];
+                if (path === 'generatePlaceholder') {
+                    try {
+                        const prefab = generatePlaceholderModel(key); // Only meteor now
+                        buildingPrefabs[key] = prefab; // Store meteor prefab
+                        assetReady(key);
+                    } catch (error) { console.error(`Error generating placeholder for ${key}:`, error); assetReady(key); }
+                } else {
+                    gltfLoader.load(path,
+                        (gltf) => { // Success
+                            const prefab = gltf.scene;
+                            console.log(`Successfully loaded external model: ${key} from ${path}`);
+                            let scale = 1.0;
+                            // --- Adjust scales as needed ---
+                            // These might require tweaking after seeing them in action
+                            if (key === 'hut') scale = 0.8; // Slightly larger maybe?
+                            if (key === 'simpleHouse') scale = 0.6;
+                            if (key === 'stoneBuilding') scale = 0.7; // This is the ornate model now
+                            if (key === 'ornateBuilding') scale = 0.7; // Also ornate model
+                            if (key === 'factory') scale = 0.01; // Factory models often need heavy scaling
+                            if (key === 'modernBuilding') scale = 0.5;
+                            if (key === 'futureBuilding') scale = 0.6;
+                            if (key === 'person') scale = 0.3; // Adjust person size
+                            prefab.scale.set(scale, scale, scale);
+
+                            // Adjust materials (optional)
+                            prefab.traverse((child) => {
+                                if (child.isMesh) {
+                                    child.material.roughness = Math.max(0.6, child.material.roughness || 0.6); // Increase roughness slightly
+                                    // Add other material adjustments if needed
+                                }
+                            });
+
+                            const box = new THREE.Box3().setFromObject(prefab);
+                            prefab.userData.baseOffsetY = -box.min.y;
+                            prefab.userData.height = Math.max(0.1, box.max.y - box.min.y);
+
+                            if (key === 'person') personPrefab = prefab;
+                            else buildingPrefabs[key] = prefab;
+                            assetReady(key);
+                        },
+                        undefined, // Progress
+                        (error) => { // Error
+                            console.error(`Error loading ${key} from ${path}:`, error);
+                            // Generate a fallback box if loading fails
+                            const fallbackGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+                            const fallbackMat = new THREE.MeshStandardMaterial({color: 0xff0000}); // Red error box
+                            const prefab = new THREE.Mesh(fallbackGeo, fallbackMat);
+                            prefab.position.y = 0.25;
+                            prefab.userData.baseOffsetY = 0;
+                            prefab.userData.height = 0.5;
+
+                            if (key === 'person') personPrefab = prefab;
+                            else buildingPrefabs[key] = prefab;
+                            assetReady(key); // Mark as ready (using fallback)
+                        }
+                    );
+                }
+            }
+        }
+
+
+        // --- Initialization Function ---
+        function init() {
+            // Basic Scene Setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB);
+            clock = new THREE.Clock();
+            textureLoader = new THREE.TextureLoader();
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+
+            // Camera
+            const aspect = window.innerWidth / window.innerHeight;
+            camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000);
+            updateCameraPosition();
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ canvas: evolutionCanvas, antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xcccccc, 0.9);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.1);
+            directionalLight.position.set(10, 15, 10);
+            scene.add(directionalLight);
+
+            // World Plane
+            const planeSize = spawnRadius * 2.5;
+            const planeGeometry = new THREE.PlaneGeometry(planeSize, planeSize);
+            const grassTexture = loadTexture(textureUrls.grass, (texture) => {
+                 texture.repeat.set(planeSize / 3, planeSize / 3);
+            });
+            const planeMaterial = new THREE.MeshStandardMaterial({ map: grassTexture, color: baseGroundColor.getHex(), side: THREE.DoubleSide, roughness: 0.9 });
+            worldPlane = new THREE.Mesh(planeGeometry, planeMaterial);
+            worldPlane.rotation.x = -Math.PI / 2;
+            scene.add(worldPlane);
+
+            // Groups
+            buildingsGroup = new THREE.Group(); scene.add(buildingsGroup);
+            peopleGroup = new THREE.Group(); scene.add(peopleGroup);
+
+            // Event Listeners
+            window.addEventListener('resize', onWindowResize, false);
+            addCameraControls();
+            addUIButtonListeners();
+            initMeteorTargeting();
+
+            // Start loading assets
+            loadAssets();
+        }
+
+        // --- Start Game Logic ---
+        function startGame() {
+            gameStarted = true;
+            updateClimateVisuals();
+            updateUIDisplay();
+            showMessage("Civilization begins!", 5000);
+            needsBuildingUpdate = true;
+            needsPeopleUpdate = true;
+            animate();
+        }
+
+
+        // --- Animation Loop ---
+        function animate() {
+            if (!gameStarted) return;
+            requestAnimationFrame(animate);
+            const deltaTime = clock.getDelta();
+
+            // Animate Meteor
+            if (meteorMesh && meteorTarget) {
+                const distanceToTarget = meteorMesh.position.distanceTo(meteorTarget);
+                if (distanceToTarget > 1.0) {
+                    const direction = meteorTarget.clone().sub(meteorMesh.position).normalize();
+                    meteorMesh.position.add(direction.multiplyScalar(meteorSpeed * deltaTime));
+                    meteorMesh.rotation.x += 0.05 * deltaTime * meteorSpeed;
+                    meteorMesh.rotation.y += 0.03 * deltaTime * meteorSpeed;
+                } else {
+                    handleMeteorImpact(meteorTarget);
+                    meteorTarget = null;
+                }
+            }
+
+            // Update game logic
+            timeAccumulator += deltaTime * timeMultiplier;
+            while (timeAccumulator >= secondsPerYear) { gameTick(); timeAccumulator -= secondsPerYear; }
+
+            // Update scene objects
+            if (needsBuildingUpdate) { updateBuildings(); needsBuildingUpdate = false; }
+            if (needsPeopleUpdate) { updatePeople(); needsPeopleUpdate = false; }
+            animatePeople(deltaTime);
+
+            renderer.render(scene, camera);
+        }
+
+        // --- Apply Climate Effects (Gameplay) ---
+        function applyClimateEffects(basePopGrowth, baseTechRate) {
+            if (climateState === 'cold') {
+                return { popGrowth: basePopGrowth * 0.3, techRate: baseTechRate * 0.5 };
+            }
+            return { popGrowth: basePopGrowth, techRate: baseTechRate };
+        }
+
+        // --- Update Climate Visuals ---
+        function updateClimateVisuals() {
+             if (!worldPlane) return;
+             const planeMaterial = worldPlane.material;
+             const planeSize = spawnRadius * 2.5;
+             let targetTextureUrl = (climateState === 'cold') ? textureUrls.snow : textureUrls.grass;
+             let targetColor = (climateState === 'cold') ? coldGroundColor : baseGroundColor;
+             let repeatVal = (climateState === 'cold') ? (planeSize / 1.5) : (planeSize / 3);
+
+             const targetTexture = loadTexture(targetTextureUrl, (texture) => {
+                 texture.repeat.set(repeatVal, repeatVal);
+                 if (planeMaterial.map !== texture) {
+                     planeMaterial.map = texture;
+                     planeMaterial.needsUpdate = true;
+                 }
+             });
+             if (planeMaterial.map !== targetTexture) { planeMaterial.map = targetTexture; }
+             planeMaterial.color.set(targetColor);
+             planeMaterial.needsUpdate = true;
+        }
+
+
+        // --- Game Logic (Ticks per year) ---
+        function gameTick() {
+            if (!gameStarted) return;
+            year++;
+            const currentEra = eras[currentEraIndex];
+            let populationChanged = false;
+            const { popGrowth, techRate } = applyClimateEffects(currentEra.popGrowth, currentEra.baseTechRate);
+
+            // Population Growth
+            const popGrowthChance = 0.1;
+            if (Math.random() < popGrowthChance * timeMultiplier) {
+                 const growthAmount = Math.max(1, population * popGrowth * (1 / popGrowthChance));
+                 population += growthAmount; populationChanged = true;
+            }
+            // Technology Progress
+            const popBonus = Math.log10(Math.max(1, population));
+            techProgress += (techRate + popBonus) * (1 / secondsPerYear);
+            // Era Advancement
+            if (techProgress >= currentEra.techGoal && currentEra.techGoal !== Infinity) {
+                advanceEra(); populationChanged = true;
+            }
+            // Update UI / Flags
+             const updateFrequency = Math.max(1, Math.floor(5 / timeMultiplier));
+             if (year % updateFrequency === 0 || populationChanged) {
+                 updateUIDisplay();
+                 if (populationChanged) { needsBuildingUpdate = true; needsPeopleUpdate = true; }
+             }
+            // Random Events
+            handleRandomEvents();
+            // Population Check
+            if (population < 1) {
+                if (population !== 1) { populationChanged = true; needsBuildingUpdate = true; needsPeopleUpdate = true; }
+                population = 1; showMessage("Population critically low!", 5000);
+            }
+        }
+
+        // --- Update Building Representation ---
+        function updateBuildings() {
+            if (!gameStarted || !buildingPrefabs || Object.keys(buildingPrefabs).length === 0) return;
+            const targetBuildingCount = Math.min(maxBuildings, Math.floor(5 + Math.log10(Math.max(1, population)) * 6));
+            const currentBuildingCount = buildingsGroup.children.length;
+            const eraModelKey = eras[currentEraIndex].modelKey;
+            const prefab = buildingPrefabs[eraModelKey];
+            if (!prefab) { console.warn(`Building prefab not found for key: ${eraModelKey}.`); return; }
+
+            if (targetBuildingCount > currentBuildingCount) { // Add
+                const buildingsToAdd = targetBuildingCount - currentBuildingCount;
+                for (let i = 0; i < buildingsToAdd; i++) {
+                    const building = prefab.clone();
+                    const angle = Math.random() * Math.PI * 2; const radius = Math.sqrt(Math.random()) * spawnRadius;
+                    const x = Math.cos(angle) * radius; const z = Math.sin(angle) * radius;
+                    const baseOffsetY = building.userData.baseOffsetY || 0;
+                    building.position.set(x, baseOffsetY, z);
+                    building.rotation.y = Math.random() * Math.PI * 2;
+                    buildingsGroup.add(building);
+                }
+            } else if (targetBuildingCount < currentBuildingCount) { // Remove
+                const buildingsToRemove = currentBuildingCount - targetBuildingCount;
+                for (let i = 0; i < buildingsToRemove; i++) {
+                    if (buildingsGroup.children.length > 0) {
+                        const randomIndex = Math.floor(Math.random() * buildingsGroup.children.length);
+                        buildingsGroup.remove(buildingsGroup.children[randomIndex]);
+                    }
+                }
+            }
+            updateUIDisplay();
+        }
+
+        // --- Clear all buildings ---
+        function clearBuildings() { while(buildingsGroup.children.length > 0){ buildingsGroup.remove(buildingsGroup.children[0]); } }
+
+        // --- Update People Representation ---
+        function updatePeople() {
+            if (!gameStarted || !personPrefab) return;
+            const targetPeopleCount = Math.min(maxVisiblePeople, Math.floor(population / 10));
+            const currentPeopleCount = people.length;
+
+            if (targetPeopleCount > currentPeopleCount) { // Add
+                const peopleToAdd = targetPeopleCount - currentPeopleCount;
+                for (let i = 0; i < peopleToAdd; i++) {
+                    const personMesh = personPrefab.clone();
+                    const angle = Math.random() * Math.PI * 2; const radius = Math.random() * spawnRadius;
+                    const x = Math.cos(angle) * radius; const z = Math.sin(angle) * radius;
+                    const baseOffsetY = personMesh.userData.baseOffsetY || 0;
+                    personMesh.position.set(x, baseOffsetY, z);
+                    peopleGroup.add(personMesh);
+                    people.push({ mesh: personMesh, targetPosition: new THREE.Vector3(x, baseOffsetY, z), isMoving: false });
+                }
+            } else if (targetPeopleCount < currentPeopleCount) { // Remove
+                const peopleToRemove = currentPeopleCount - targetPeopleCount;
+                for (let i = 0; i < peopleToRemove; i++) {
+                    if (people.length > 0) {
+                        const indexToRemove = Math.floor(Math.random() * people.length);
+                        const personToRemove = people.splice(indexToRemove, 1)[0];
+                        peopleGroup.remove(personToRemove.mesh);
+                    }
+                }
+            }
+            updateUIDisplay();
+        }
+
+        // --- Animate People Movement ---
+        function animatePeople(deltaTime) {
+            if (!gameStarted) return; const moveChance = 0.01;
+            people.forEach(person => {
+                const baseOffsetY = person.mesh.userData.baseOffsetY || 0;
+                if (!person.isMoving && Math.random() < moveChance * timeMultiplier) {
+                    person.isMoving = true; const angle = Math.random() * Math.PI * 2; const radius = Math.random() * spawnRadius;
+                    const targetX = Math.cos(angle) * radius; const targetZ = Math.sin(angle) * radius;
+                    person.targetPosition.set(targetX, baseOffsetY, targetZ);
+                }
+                if (person.isMoving) {
+                    const currentPos = person.mesh.position; const targetPos = person.targetPosition;
+                    const distance = currentPos.distanceTo(targetPos);
+                    if (distance > 0.15) {
+                        const direction = targetPos.clone().sub(currentPos).normalize();
+                        const moveDistance = personSpeed * deltaTime * timeMultiplier;
+                        if (moveDistance < distance) {
+                            person.mesh.position.add(direction.multiplyScalar(moveDistance));
+                            person.mesh.lookAt(targetPos.x, baseOffsetY, targetPos.z);
+                        } else { person.mesh.position.copy(targetPos); person.isMoving = false; }
+                    } else { person.isMoving = false; }
+                }
+            });
+        }
+
+        // --- Handle Random Events ---
+        function handleRandomEvents() {
+            if (!gameStarted) return; const currentEra = eras[currentEraIndex]; const eventChanceMultiplier = Math.max(1, timeMultiplier / 2);
+            if (Math.random() < 0.001 * eventChanceMultiplier && currentEraIndex > 0) { // Minor Disaster
+                const popLossPercent = 0.05 + Math.random() * 0.1; const popLoss = Math.floor(population * popLossPercent); population -= popLoss; needsBuildingUpdate = true; needsPeopleUpdate = true; showMessage(`Minor disaster! Lost ${formatPopulation(popLoss)} people.`, 4000);
+            }
+            if (Math.random() < 0.0005 * eventChanceMultiplier && currentEraIndex > 1) { // Breakthrough
+                const techBoost = currentEra.techGoal * (0.03 + Math.random() * 0.05); techProgress += techBoost; showMessage(`Scientific breakthrough! +${Math.floor(techBoost)} tech progress.`, 4000);
+            }
+        }
+
+        // --- Meteor Targeting Setup ---
+        function initMeteorTargeting() {
+             canvasContainer.addEventListener('click', onCanvasClick, false);
+             meteorBtn.addEventListener('click', (e) => {
+                 e.stopPropagation(); if (meteorMesh) { showMessage("Meteor already incoming!", 3000); return; }
+                 isSelectingMeteorTarget = true; canvasContainer.classList.add('targeting');
+                 showMessage("Click on the ground to target meteor strike!", 5000);
+             });
+        }
+
+        // --- Handle Canvas Click for Meteor ---
+        function onCanvasClick(event) {
+            if (!isSelectingMeteorTarget || !gameStarted) return;
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1; mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObject(worldPlane);
+            if (intersects.length > 0) {
+                const impactPoint = intersects[0].point; launchMeteor(impactPoint);
+                isSelectingMeteorTarget = false; canvasContainer.classList.remove('targeting');
+                showMessage("Meteor inbound!", 3000);
+            } else { showMessage("Missed the ground! Try clicking lower.", 3000); }
+        }
+
+        // --- Launch Meteor ---
+        function launchMeteor(targetPos) {
+             if (!buildingPrefabs['meteor']) { console.error("Meteor prefab not loaded!"); return; }
+             meteorMesh = buildingPrefabs['meteor'].clone(); meteorTarget = targetPos.clone();
+             meteorMesh.position.set(targetPos.x, meteorStartY, targetPos.z); scene.add(meteorMesh);
+        }
+
+        // --- Handle Meteor Impact ---
+        function handleMeteorImpact(impactPos) {
+             console.log("Meteor Impact!"); showMessage("IMPACT! Climate shifts to cold.", 6000);
+             if (meteorMesh) { scene.remove(meteorMesh); meteorMesh = null; }
+             // Remove objects in radius
+             const buildingsToRemove = buildingsGroup.children.filter(b => b.position.distanceTo(impactPos) < meteorImpactRadius);
+             buildingsToRemove.forEach(b => buildingsGroup.remove(b));
+             const peopleIndicesToRemove = people.map((p, i) => p.mesh.position.distanceTo(impactPos) < meteorImpactRadius ? i : -1).filter(i => i !== -1);
+             for (let i = peopleIndicesToRemove.length - 1; i >= 0; i--) { const personToRemove = people.splice(peopleIndicesToRemove[i], 1)[0]; peopleGroup.remove(personToRemove.mesh); }
+             // Change Climate & Update UI
+             climateState = 'cold'; updateClimateVisuals();
+             needsBuildingUpdate = true; needsPeopleUpdate = true; updateUIDisplay();
+        }
+
+        // --- Utility Functions ---
+        function updateUIDisplay() { const currentEra = eras[currentEraIndex]; yearDisplay.textContent = year; eraDisplay.textContent = currentEra.name; populationDisplay.textContent = formatPopulation(population); climateDisplay.textContent = climateState.charAt(0).toUpperCase() + climateState.slice(1); techProgressDisplay.textContent = Math.floor(techProgress); techGoalDisplay.textContent = currentEra.techGoal === Infinity ? '∞' : currentEra.techGoal; timeSpeedDisplay.textContent = `${timeMultiplier}x`; buildingCountDisplay.textContent = buildingsGroup ? buildingsGroup.children.length : 0; peopleCountDisplay.textContent = people ? people.length : 0; }
+        function formatPopulation(num) { num = Math.max(0, num); if (num < 1000) return Math.floor(num).toString(); if (num < 1000000) return (num / 1000).toFixed(1) + 'K'; if (num < 1000000000) return (num / 1000000).toFixed(1) + 'M'; return (num / 1000000000).toFixed(1) + 'B'; }
+        function showMessage(msg, duration = 3000) { messageDisplay.textContent = msg; if (messageTimeout) clearTimeout(messageTimeout); messageTimeout = setTimeout(() => { if(gameStarted) messageDisplay.textContent = ''; }, duration); }
+        function changeTimeSpeed(change) { const newMultiplier = timeMultiplier * change; const minSpeed = 0.125; const maxSpeed = 64; if (newMultiplier >= minSpeed && newMultiplier <= maxSpeed) { timeMultiplier = newMultiplier; updateUIDisplay(); showMessage(`Time speed set to ${timeMultiplier}x`); } else if (newMultiplier < minSpeed) { showMessage(`Cannot slow down further (Min: ${minSpeed}x)`); } else { showMessage(`Cannot speed up further (Max: ${maxSpeed}x)`); } }
+        function advanceEra() { if (currentEraIndex < eras.length - 1) { currentEraIndex++; techProgress = 0; const newEra = eras[currentEraIndex]; showMessage(`Advanced to the ${newEra.name}!`, 5000); clearBuildings(); needsBuildingUpdate = true; updateUIDisplay(); } else { showMessage("Reached the final known era!", 5000); } }
+
+        // --- Event Handlers ---
+        function onWindowResize() { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
+        function addUIButtonListeners() {
+            slowTimeBtn.addEventListener('click', (e) => { e.stopPropagation(); changeTimeSpeed(0.5); });
+            speedTimeBtn.addEventListener('click', (e) => { e.stopPropagation(); changeTimeSpeed(2); });
+            giveFireBtn.addEventListener('click', (e) => { e.stopPropagation(); if (currentEraIndex === 0) { const boost = 50; techProgress += boost; showMessage(`Fire discovered! +${boost} Tech!`, 4000); updateUIDisplay(); } else { showMessage("Fire is already known.", 3000); } });
+            destroyHomesBtn.addEventListener('click', (e) => { e.stopPropagation(); const popLoss = Math.floor(population * 0.2); population -= popLoss; if (population < 1) population = 1; needsBuildingUpdate = true; needsPeopleUpdate = true; showMessage(`Homes destroyed! Pop -${formatPopulation(popLoss)}.`, 4000); updateUIDisplay(); });
+            inspireBtn.addEventListener('click', (e) => { e.stopPropagation(); const currentEra = eras[currentEraIndex]; const boost = currentEra.baseTechRate * 5 * (currentEraIndex + 1); techProgress += boost; showMessage(`Inspiration! +${Math.floor(boost)} tech.`, 4000); updateUIDisplay(); });
+            plagueBtn.addEventListener('click', (e) => { e.stopPropagation(); const popLoss = Math.floor(population * 0.5); population -= popLoss; if (population < 1) population = 1; techProgress *= 0.8; needsBuildingUpdate = true; needsPeopleUpdate = true; showMessage(`Plague strikes! Pop -${formatPopulation(popLoss)}! Tech hindered.`, 5000); updateUIDisplay(); });
+        }
+
+        // --- Camera Mouse/Touch Controls ---
+         function addCameraControls() { canvasContainer.addEventListener('mousedown', onMouseDown, false); canvasContainer.addEventListener('mousemove', onMouseMove, false); canvasContainer.addEventListener('mouseup', onMouseUp, false); canvasContainer.addEventListener('mouseout', onMouseUp, false); canvasContainer.addEventListener('wheel', onMouseWheel, { passive: false }); canvasContainer.addEventListener('touchstart', onTouchStart, { passive: false }); canvasContainer.addEventListener('touchmove', onTouchMove, { passive: false }); canvasContainer.addEventListener('touchend', onTouchEnd, false); }
+         function updateCameraPosition() { camera.position.x = cameraRadius * Math.sin(cameraPhi) * Math.sin(cameraTheta); camera.position.y = cameraRadius * Math.cos(cameraPhi); camera.position.z = cameraRadius * Math.sin(cameraPhi) * Math.cos(cameraTheta); camera.lookAt(cameraTarget); }
+         function handleDrag(deltaX, deltaY) { cameraTheta -= deltaX * 0.005; cameraPhi -= deltaY * 0.005; const phiMin = 0.1; const phiMax = Math.PI - 0.1; cameraPhi = Math.max(phiMin, Math.min(phiMax, cameraPhi)); updateCameraPosition(); }
+         function handleZoom(deltaY) { cameraRadius += deltaY * 0.05; const radiusMin = 3; const radiusMax = 80; cameraRadius = Math.max(radiusMin, Math.min(radiusMax, cameraRadius)); updateCameraPosition(); }
+         function onMouseDown(event) { if (isSelectingMeteorTarget) return; if (event.target === canvas) { isDragging = true; previousMousePosition.x = event.clientX; previousMousePosition.y = event.clientY; } }
+         function onMouseMove(event) { if (!isDragging) return; const deltaX = event.clientX - previousMousePosition.x; const deltaY = event.clientY - previousMousePosition.y; handleDrag(deltaX, deltaY); previousMousePosition.x = event.clientX; previousMousePosition.y = event.clientY; }
+         function onMouseUp(event) { isDragging = false; }
+         function onMouseWheel(event) { if (event.target === canvas) { event.preventDefault(); handleZoom(event.deltaY); } }
+         let previousTouchPosition = { x: 0, y: 0 };
+         function onTouchStart(event) { if (isSelectingMeteorTarget) return; if (event.target === canvas && event.touches.length === 1) { isDragging = true; previousTouchPosition.x = event.touches[0].clientX; previousTouchPosition.y = event.touches[0].clientY; event.preventDefault(); } }
+         function onTouchMove(event) { if (!isDragging || event.touches.length !== 1) return; const deltaX = event.touches[0].clientX - previousTouchPosition.x; const deltaY = event.touches[0].clientY - previousTouchPosition.y; handleDrag(deltaX, deltaY); previousTouchPosition.x = event.touches[0].clientX; previousTouchPosition.y = event.touches[0].clientY; event.preventDefault(); }
+         function onTouchEnd(event) { if (event.touches.length < 1) { isDragging = false; } }
+
+        // --- Start the initialization process ---
+        window.onload = init;
+
+    </script>
+</body>
+</html>
 
