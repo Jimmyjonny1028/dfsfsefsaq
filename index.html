@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Visual Evolution Simulator V7</title> <script src="https://cdn.tailwindcss.com"></script>
+    <title>Visual Evolution Simulator V10</title> <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
@@ -118,7 +118,8 @@
         let worldPlane, buildingsGroup, peopleGroup;
         let buildingPrefabs = {};
         let personPrefab;
-        let people = [];
+        let people = []; // Stores { mesh, currentDirection }
+        let foundationsInProgress = []; // Stores { mesh, targetModelKey, position, rotation, buildProgress }
         let raycaster, mouse;
         let meteorMesh = null;
         let meteorTarget = null;
@@ -127,7 +128,7 @@
         let isDragging = false;
         let previousMousePosition = { x: 0, y: 0 };
         let cameraTarget = new THREE.Vector3(0, 0, 0);
-        let cameraRadius = 30;
+        let cameraRadius = 45;
         let cameraPhi = Math.PI / 3.5;
         let cameraTheta = Math.PI / 4;
 
@@ -139,7 +140,7 @@
         let timeMultiplier = 1;
         let timeAccumulator = 0;
         let messageTimeout;
-        let needsBuildingUpdate = true;
+        let needsBuildingUpdate = true; // Flag to check if new foundations are needed
         let needsPeopleUpdate = true;
         let gameStarted = false;
         let isSelectingMeteorTarget = false;
@@ -148,55 +149,54 @@
         let coldGroundColor = new THREE.Color(0xeeeeff);
 
         // --- Game Configuration ---
-        const spawnRadius = 20;
-        const maxBuildings = 150; // Keep relatively low for performance with loaded models
-        const maxVisiblePeople = 50;
-        const personSpeed = 1.5;
-        const secondsPerYear = 1.0; // Slower game year
-        const meteorStartY = 50;
-        const meteorSpeed = 40;
-        const meteorImpactRadius = 5;
+        const spawnRadius = 35;
+        const maxBuildings = 150;
+        const maxVisiblePeople = 500;
+        const personSpeed = 3.0; // Speed units per second
+        const secondsPerYear = 1.0;
+        const buildTimePerBuilding = 5.0; // Seconds it takes to 'build' one building at 1x speed
+        const meteorStartY = 70;
+        const meteorSpeed = 50;
+        const meteorImpactRadius = 7;
 
-        // --- Era Configuration (SLOWER PROGRESSION) ---
+        // --- Era Configuration ---
         const eras = [
             { name: "Stone Age", techGoal: 200, popGrowth: 0.05, baseTechRate: 0.8, modelKey: 'hut' },
             { name: "Bronze Age", techGoal: 1000, popGrowth: 0.1, baseTechRate: 1.5, modelKey: 'simpleHouse' },
-            { name: "Iron Age", techGoal: 4000, popGrowth: 0.15, baseTechRate: 4, modelKey: 'simpleHouse' }, // Reuses simple house
-            { name: "Classical Age", techGoal: 10000, popGrowth: 0.1, baseTechRate: 8, modelKey: 'stoneBuilding' }, // Using keep model
-            { name: "Medieval Age", techGoal: 20000, popGrowth: 0.08, baseTechRate: 12, modelKey: 'stoneBuilding' }, // Reuses keep model
+            { name: "Iron Age", techGoal: 4000, popGrowth: 0.15, baseTechRate: 4, modelKey: 'simpleHouse' },
+            { name: "Classical Age", techGoal: 10000, popGrowth: 0.1, baseTechRate: 8, modelKey: 'stoneBuilding' },
+            { name: "Medieval Age", techGoal: 20000, popGrowth: 0.08, baseTechRate: 12, modelKey: 'stoneBuilding' },
             { name: "Renaissance", techGoal: 50000, popGrowth: 0.12, baseTechRate: 20, modelKey: 'ornateBuilding' },
             { name: "Industrial Age", techGoal: 100000, popGrowth: 0.2, baseTechRate: 40, modelKey: 'factory' },
             { name: "Information Age", techGoal: 200000, popGrowth: 0.1, baseTechRate: 80, modelKey: 'modernBuilding' },
             { name: "Future Age", techGoal: Infinity, popGrowth: 0.05, baseTechRate: 150, modelKey: 'futureBuilding' }
         ];
 
-        // --- Model Paths (Updated with User's URLs) ---
+        // --- Model Paths ---
         const modelPaths = {
-            'hut': 'https://github.com/Jimmyjonny1028/dfsfsefsaq/raw/refs/heads/main/hutgbl.glb',
-            'simpleHouse': 'https://github.com/Jimmyjonny1028/dfsfsefsaq/raw/refs/heads/main/simplehouse.glb',
-            'stoneBuilding': 'https://github.com/Jimmyjonny1028/dfsfsefsaq/raw/refs/heads/main/ornatebuilding.glb', // Assuming ornate is stone for now
-            'ornateBuilding': 'https://github.com/Jimmyjonny1028/dfsfsefsaq/raw/refs/heads/main/ornatebuilding.glb',
-            'factory': 'https://github.com/Jimmyjonny1028/dfsfsefsaq/raw/refs/heads/main/factorybuild(1).glb',
-            'modernBuilding': 'https://github.com/Jimmyjonny1028/dfsfsefsaq/raw/refs/heads/main/modernbuilding.glb',
-            'futureBuilding': 'https://github.com/Jimmyjonny1028/dfsfsefsaq/raw/refs/heads/main/futuristic%20build.glb',
-            'person': 'https://github.com/Jimmyjonny1028/dfsfsefsaq/raw/refs/heads/main/personfi.glb',
-            'meteor': 'generatePlaceholder' // Keep meteor as placeholder for now
+            'hut': 'https://jimmyjonny1028.github.io/dfsfsefsaq/hutgbl.glb',
+            'simpleHouse': 'https://jimmyjonny1028.github.io/dfsfsefsaq/simplehouse.glb',
+            'stoneBuilding': 'https://jimmyjonny1028.github.io/dfsfsefsaq/ornatebuilding.glb',
+            'ornateBuilding': 'https://jimmyjonny1028.github.io/dfsfsefsaq/ornatebuilding.glb',
+            'factory': 'https://jimmyjonny1028.github.io/dfsfsefsaq/factorybuild(1).glb',
+            'modernBuilding': 'https://jimmyjonny1028.github.io/dfsfsefsaq/modernbuilding.glb',
+            'futureBuilding': 'https://jimmyjonny1028.github.io/dfsfsefsaq/futuristic%20build.glb',
+            'person': 'https://jimmyjonny1028.github.io/dfsfsefsaq/personfi.glb',
+            'meteor': 'generatePlaceholder'
         };
 
-        // --- Texture URLs (Only needed for placeholders now) ---
+        // --- Texture URLs ---
         const textureUrls = {
-            // wood: 'https://placehold.co/128x128/8B4513/654321.png?text=Wood', // Less needed now
-            // stone: 'https://placehold.co/128x128/778899/556677.png?text=Stone',
-            // brick: 'https://placehold.co/128x128/B22222/800000.png?text=Brick',
-            // metal: 'https://placehold.co/128x128/A9A9A9/696969.png?text=Metal',
-            // ornate: 'https://placehold.co/128x128/FFDEAD/D2B48C.png?text=Ornate',
-            // modern: 'https://placehold.co/128x128/ADD8E6/87CEEB.png?text=Glass',
-            // future: 'https://placehold.co/128x128/E0FFFF/AFEEEE.png?text=SciFi',
-            rock: 'https://placehold.co/64x64/696969/FFFFFF.png?text=Rock', // For meteor
+            rock: 'https://placehold.co/64x64/696969/FFFFFF.png?text=Rock',
             snow: 'https://placehold.co/64x64/FFFFFF/CCCCCC.png?text=+',
             grass: 'https://placehold.co/64x64/228B22/228B22.png?text=+'
         };
         let loadedTextures = {};
+
+        // --- Foundation Geometry/Material (simple cylinder) ---
+        const foundationGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.1, 16);
+        const foundationMaterial = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, roughness: 0.8 });
+
 
         // --- DOM Elements ---
         const yearDisplay = document.getElementById('year'); const eraDisplay = document.getElementById('era'); const populationDisplay = document.getElementById('population'); const techProgressDisplay = document.getElementById('techProgress'); const techGoalDisplay = document.getElementById('techGoal'); const timeSpeedDisplay = document.getElementById('timeSpeed'); const messageDisplay = document.getElementById('message'); const buildingCountDisplay = document.getElementById('buildingCount'); const peopleCountDisplay = document.getElementById('peopleCount'); const climateDisplay = document.getElementById('climate'); const slowTimeBtn = document.getElementById('slowTimeBtn'); const speedTimeBtn = document.getElementById('speedTimeBtn'); const giveFireBtn = document.getElementById('giveFireBtn'); const destroyHomesBtn = document.getElementById('destroyHomesBtn'); const inspireBtn = document.getElementById('inspireBtn'); const plagueBtn = document.getElementById('plagueBtn'); const meteorBtn = document.getElementById('meteorBtn'); const canvas = document.getElementById('evolutionCanvas'); const canvasContainer = document.getElementById('canvasContainer'); const loadingOverlay = document.getElementById('loadingOverlay'); const loadingProgress = document.getElementById('loadingProgress');
@@ -238,10 +238,9 @@
                  material.emissive = new THREE.Color(0xff4500); material.emissiveIntensity = 0.3;
                  group.add(mesh);
             } else {
-                 // Fallback for any other unexpected placeholder request
                  console.warn(`Generating fallback box for unexpected key: ${eraKey}`);
                  geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
-                 mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({color: 0xff00ff})); // Magenta error box
+                 mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({color: 0xff00ff}));
                  mesh.position.y = 0.1;
                  group.add(mesh);
             }
@@ -254,7 +253,7 @@
         }
 
 
-        // --- Asset Loading (Revised Logic) ---
+        // --- Asset Loading (Adjusted Scales) ---
         function loadAssets() {
             loadingManager = new THREE.LoadingManager();
             gltfLoader = new THREE.GLTFLoader(loadingManager);
@@ -284,7 +283,7 @@
                 if (path === 'generatePlaceholder') {
                     try {
                         const prefab = generatePlaceholderModel(key); // Only meteor now
-                        buildingPrefabs[key] = prefab; // Store meteor prefab
+                        buildingPrefabs[key] = prefab;
                         assetReady(key);
                     } catch (error) { console.error(`Error generating placeholder for ${key}:`, error); assetReady(key); }
                 } else {
@@ -292,30 +291,31 @@
                         (gltf) => { // Success
                             const prefab = gltf.scene;
                             console.log(`Successfully loaded external model: ${key} from ${path}`);
-                            let scale = 1.0;
-                            // --- Adjust scales as needed ---
-                            // These might require tweaking after seeing them in action
-                            if (key === 'hut') scale = 0.8; // Slightly larger maybe?
-                            if (key === 'simpleHouse') scale = 0.6;
-                            if (key === 'stoneBuilding') scale = 0.7; // This is the ornate model now
-                            if (key === 'ornateBuilding') scale = 0.7; // Also ornate model
-                            if (key === 'factory') scale = 0.01; // Factory models often need heavy scaling
-                            if (key === 'modernBuilding') scale = 0.5;
-                            if (key === 'futureBuilding') scale = 0.6;
-                            if (key === 'person') scale = 0.3; // Adjust person size
-                            prefab.scale.set(scale, scale, scale);
+                            let scale = 1.0; // Default scale
+
+                            // --- Adjust scales for better relative size ---
+                            if (key === 'hut') scale = 0.5;
+                            if (key === 'simpleHouse') scale = 0.7;
+                            if (key === 'stoneBuilding') scale = 0.05; // Drastically reduced
+                            if (key === 'ornateBuilding') scale = 0.05; // Drastically reduced
+                            if (key === 'factory') scale = 0.008;
+                            if (key === 'modernBuilding') scale = 0.6;
+                            if (key === 'futureBuilding') scale = 0.7;
+                            if (key === 'person') scale = 1.0; // <<< Keep person scale at 1.0
+
+                            prefab.scale.set(scale, scale, scale); // Apply scale
 
                             // Adjust materials (optional)
                             prefab.traverse((child) => {
                                 if (child.isMesh) {
-                                    child.material.roughness = Math.max(0.6, child.material.roughness || 0.6); // Increase roughness slightly
-                                    // Add other material adjustments if needed
+                                    child.material.roughness = Math.max(0.7, child.material.roughness || 0.7);
                                 }
                             });
 
+                            // --- Recalculate bounding box AFTER scaling ---
                             const box = new THREE.Box3().setFromObject(prefab);
-                            prefab.userData.baseOffsetY = -box.min.y;
-                            prefab.userData.height = Math.max(0.1, box.max.y - box.min.y);
+                            prefab.userData.baseOffsetY = -box.min.y; // Offset from origin to lowest point
+                            prefab.userData.height = Math.max(0.1, box.max.y - box.min.y); // Height of scaled model
 
                             if (key === 'person') personPrefab = prefab;
                             else buildingPrefabs[key] = prefab;
@@ -370,7 +370,7 @@
             scene.add(directionalLight);
 
             // World Plane
-            const planeSize = spawnRadius * 2.5;
+            const planeSize = spawnRadius * 2.5; // Use updated spawnRadius
             const planeGeometry = new THREE.PlaneGeometry(planeSize, planeSize);
             const grassTexture = loadTexture(textureUrls.grass, (texture) => {
                  texture.repeat.set(planeSize / 3, planeSize / 3);
@@ -433,7 +433,8 @@
             // Update scene objects
             if (needsBuildingUpdate) { updateBuildings(); needsBuildingUpdate = false; }
             if (needsPeopleUpdate) { updatePeople(); needsPeopleUpdate = false; }
-            animatePeople(deltaTime);
+            updateConstruction(deltaTime); // <<< Update building construction progress
+            animatePeople(deltaTime); // Call people animation
 
             renderer.render(scene, camera);
         }
@@ -504,44 +505,127 @@
             }
         }
 
-        // --- Update Building Representation ---
+        // --- Update Building Foundations (Checks if new ones are needed) ---
         function updateBuildings() {
             if (!gameStarted || !buildingPrefabs || Object.keys(buildingPrefabs).length === 0) return;
-            const targetBuildingCount = Math.min(maxBuildings, Math.floor(5 + Math.log10(Math.max(1, population)) * 6));
-            const currentBuildingCount = buildingsGroup.children.length;
-            const eraModelKey = eras[currentEraIndex].modelKey;
-            const prefab = buildingPrefabs[eraModelKey];
-            if (!prefab) { console.warn(`Building prefab not found for key: ${eraModelKey}.`); return; }
 
-            if (targetBuildingCount > currentBuildingCount) { // Add
-                const buildingsToAdd = targetBuildingCount - currentBuildingCount;
-                for (let i = 0; i < buildingsToAdd; i++) {
-                    const building = prefab.clone();
-                    const angle = Math.random() * Math.PI * 2; const radius = Math.sqrt(Math.random()) * spawnRadius;
-                    const x = Math.cos(angle) * radius; const z = Math.sin(angle) * radius;
-                    const baseOffsetY = building.userData.baseOffsetY || 0;
-                    building.position.set(x, baseOffsetY, z);
-                    building.rotation.y = Math.random() * Math.PI * 2;
-                    buildingsGroup.add(building);
-                }
-            } else if (targetBuildingCount < currentBuildingCount) { // Remove
-                const buildingsToRemove = currentBuildingCount - targetBuildingCount;
-                for (let i = 0; i < buildingsToRemove; i++) {
-                    if (buildingsGroup.children.length > 0) {
-                        const randomIndex = Math.floor(Math.random() * buildingsGroup.children.length);
-                        buildingsGroup.remove(buildingsGroup.children[randomIndex]);
+            // Calculate total existing buildings (completed + under construction)
+            const currentCompletedBuildings = buildingsGroup.children.length;
+            const currentFoundations = foundationsInProgress.length;
+            const totalCurrentBuildings = currentCompletedBuildings + currentFoundations;
+
+            const targetBuildingCount = Math.min(maxBuildings, Math.floor(5 + Math.log10(Math.max(1, population)) * 6));
+
+            if (targetBuildingCount > totalCurrentBuildings) { // Need to start new foundations
+                const foundationsToStart = targetBuildingCount - totalCurrentBuildings;
+                const eraModelKey = eras[currentEraIndex].modelKey; // Model to build eventually
+
+                for (let i = 0; i < foundationsToStart; i++) {
+                    // Create foundation mesh
+                    const foundationMesh = new THREE.Mesh(foundationGeometry, foundationMaterial);
+
+                    // Find position (avoid placing directly on existing foundations/buildings - simple check)
+                    let placed = false;
+                    let attempts = 0;
+                    const maxAttempts = 50;
+                    let x, z, position, rotationY;
+
+                    while (!placed && attempts < maxAttempts) {
+                        const angle = Math.random() * Math.PI * 2;
+                        const radius = Math.sqrt(Math.random()) * spawnRadius;
+                        x = Math.cos(angle) * radius;
+                        z = Math.sin(angle) * radius;
+                        position = new THREE.Vector3(x, 0.05, z); // Place slightly above ground
+                        rotationY = Math.random() * Math.PI * 2;
+
+                        // Simple check: ensure not too close to existing foundations
+                        let tooClose = false;
+                        for (const foundation of foundationsInProgress) {
+                            if (foundation.position.distanceTo(position) < 1.0) { // Minimum distance
+                                tooClose = true;
+                                break;
+                            }
+                        }
+                        // Could also check against completed buildings if needed (more complex)
+
+                        if (!tooClose) {
+                            placed = true;
+                        }
+                        attempts++;
+                    }
+
+                    if (placed) {
+                        foundationMesh.position.copy(position);
+                        foundationMesh.rotation.y = rotationY;
+                        scene.add(foundationMesh); // Add foundation to scene directly (not buildingsGroup yet)
+
+                        // Add to tracking array
+                        foundationsInProgress.push({
+                            mesh: foundationMesh,
+                            targetModelKey: eraModelKey,
+                            position: position.clone(),
+                            rotation: rotationY,
+                            buildProgress: 0 // Starts at 0
+                        });
+                    } else {
+                        console.warn("Could not find suitable position for foundation after max attempts.");
                     }
                 }
             }
-            updateUIDisplay();
+            // Note: Removing buildings is handled by Raze/Plague/Meteor directly now
+            updateUIDisplay(); // Update counts
         }
 
-        // --- Clear all buildings ---
-        function clearBuildings() { while(buildingsGroup.children.length > 0){ buildingsGroup.remove(buildingsGroup.children[0]); } }
+        // --- Update Construction Progress ---
+        function updateConstruction(deltaTime) {
+            if (!gameStarted || foundationsInProgress.length === 0) return;
+
+            const buildRate = (1 / buildTimePerBuilding) * deltaTime * timeMultiplier; // Progress per second scaled by timeMultiplier
+
+            // Iterate backwards for safe removal
+            for (let i = foundationsInProgress.length - 1; i >= 0; i--) {
+                const foundation = foundationsInProgress[i];
+                foundation.buildProgress += buildRate;
+
+                // Optional: Visual feedback for progress (e.g., scale foundation)
+                // foundation.mesh.scale.set(1, foundation.buildProgress, 1);
+
+                if (foundation.buildProgress >= 1) {
+                    // Construction complete!
+                    const finalPrefab = buildingPrefabs[foundation.targetModelKey];
+                    if (finalPrefab) {
+                        const finalBuilding = finalPrefab.clone();
+                        const baseOffsetY = finalBuilding.userData.baseOffsetY || 0;
+                        finalBuilding.position.set(foundation.position.x, baseOffsetY, foundation.position.z);
+                        finalBuilding.rotation.y = foundation.rotation;
+                        buildingsGroup.add(finalBuilding); // Add final building to the main group
+                    } else {
+                        console.warn(`Target model prefab '${foundation.targetModelKey}' not found for completed foundation.`);
+                    }
+
+                    // Remove foundation
+                    scene.remove(foundation.mesh); // Remove foundation mesh from scene
+                    foundationsInProgress.splice(i, 1); // Remove from tracking array
+                    updateUIDisplay(); // Update building count immediately
+                }
+            }
+        }
+
+
+        // --- Clear all buildings (Now includes foundations) ---
+        function clearBuildings() {
+             // Remove completed buildings
+             while(buildingsGroup.children.length > 0){
+                 buildingsGroup.remove(buildingsGroup.children[0]);
+             }
+             // Remove foundations in progress
+             foundationsInProgress.forEach(foundation => scene.remove(foundation.mesh));
+             foundationsInProgress = []; // Clear the array
+        }
 
         // --- Update People Representation ---
         function updatePeople() {
-            if (!gameStarted || !personPrefab) return;
+            if (!gameStarted || !personPrefab) { return; }
             const targetPeopleCount = Math.min(maxVisiblePeople, Math.floor(population / 10));
             const currentPeopleCount = people.length;
 
@@ -553,8 +637,12 @@
                     const x = Math.cos(angle) * radius; const z = Math.sin(angle) * radius;
                     const baseOffsetY = personMesh.userData.baseOffsetY || 0;
                     personMesh.position.set(x, baseOffsetY, z);
+                    // console.log(`Adding person ${i + currentPeopleCount} at ${x.toFixed(1)}, ${baseOffsetY.toFixed(1)}, ${z.toFixed(1)}`); // DEBUG
                     peopleGroup.add(personMesh);
-                    people.push({ mesh: personMesh, targetPosition: new THREE.Vector3(x, baseOffsetY, z), isMoving: false });
+                    // Initialize with a random direction
+                    const randomAngle = Math.random() * Math.PI * 2;
+                    const initialDirection = new THREE.Vector3(Math.cos(randomAngle), 0, Math.sin(randomAngle)).normalize();
+                    people.push({ mesh: personMesh, currentDirection: initialDirection });
                 }
             } else if (targetPeopleCount < currentPeopleCount) { // Remove
                 const peopleToRemove = currentPeopleCount - targetPeopleCount;
@@ -569,28 +657,39 @@
             updateUIDisplay();
         }
 
-        // --- Animate People Movement ---
+        // --- Animate People Movement (Random Walk) ---
         function animatePeople(deltaTime) {
-            if (!gameStarted) return; const moveChance = 0.01;
-            people.forEach(person => {
+            if (!gameStarted || people.length === 0) return;
+            const directionChangeChance = 0.02; // Chance per frame to change direction slightly
+
+            people.forEach((person, index) => {
+                // Chance to change direction slightly
+                if (Math.random() < directionChangeChance * timeMultiplier) {
+                    // Add a small random vector to the current direction and re-normalize
+                    const randomAngleOffset = (Math.random() - 0.5) * Math.PI * 0.5; // +/- 45 degrees max change
+                    person.currentDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), randomAngleOffset); // Rotate around Y
+                    person.currentDirection.normalize();
+                }
+
+                // Move forward
+                const moveDistance = personSpeed * deltaTime * timeMultiplier;
+                const moveVector = person.currentDirection.clone().multiplyScalar(moveDistance);
+                person.mesh.position.add(moveVector);
+
+                // Keep within bounds (simple wrap-around)
+                if (person.mesh.position.x > spawnRadius) person.mesh.position.x = -spawnRadius;
+                if (person.mesh.position.x < -spawnRadius) person.mesh.position.x = spawnRadius;
+                if (person.mesh.position.z > spawnRadius) person.mesh.position.z = -spawnRadius;
+                if (person.mesh.position.z < -spawnRadius) person.mesh.position.z = spawnRadius;
+
+                // Ensure Y position remains correct (using base offset)
                 const baseOffsetY = person.mesh.userData.baseOffsetY || 0;
-                if (!person.isMoving && Math.random() < moveChance * timeMultiplier) {
-                    person.isMoving = true; const angle = Math.random() * Math.PI * 2; const radius = Math.random() * spawnRadius;
-                    const targetX = Math.cos(angle) * radius; const targetZ = Math.sin(angle) * radius;
-                    person.targetPosition.set(targetX, baseOffsetY, targetZ);
-                }
-                if (person.isMoving) {
-                    const currentPos = person.mesh.position; const targetPos = person.targetPosition;
-                    const distance = currentPos.distanceTo(targetPos);
-                    if (distance > 0.15) {
-                        const direction = targetPos.clone().sub(currentPos).normalize();
-                        const moveDistance = personSpeed * deltaTime * timeMultiplier;
-                        if (moveDistance < distance) {
-                            person.mesh.position.add(direction.multiplyScalar(moveDistance));
-                            person.mesh.lookAt(targetPos.x, baseOffsetY, targetPos.z);
-                        } else { person.mesh.position.copy(targetPos); person.isMoving = false; }
-                    } else { person.isMoving = false; }
-                }
+                person.mesh.position.y = baseOffsetY;
+
+                // Look in the direction of movement
+                const lookTarget = person.mesh.position.clone().add(person.currentDirection);
+                person.mesh.lookAt(lookTarget.x, baseOffsetY, lookTarget.z); // Look at point ahead on the same Y level
+
             });
         }
 
@@ -639,9 +738,18 @@
         function handleMeteorImpact(impactPos) {
              console.log("Meteor Impact!"); showMessage("IMPACT! Climate shifts to cold.", 6000);
              if (meteorMesh) { scene.remove(meteorMesh); meteorMesh = null; }
-             // Remove objects in radius
+             // Remove completed buildings in radius
              const buildingsToRemove = buildingsGroup.children.filter(b => b.position.distanceTo(impactPos) < meteorImpactRadius);
              buildingsToRemove.forEach(b => buildingsGroup.remove(b));
+             // Remove foundations in radius
+             const foundationsToRemoveIndices = foundationsInProgress
+                .map((f, i) => f.position.distanceTo(impactPos) < meteorImpactRadius ? i : -1)
+                .filter(i => i !== -1);
+             for (let i = foundationsToRemoveIndices.length - 1; i >= 0; i--) {
+                 const foundationToRemove = foundationsInProgress.splice(foundationsToRemoveIndices[i], 1)[0];
+                 scene.remove(foundationToRemove.mesh);
+             }
+             // Remove people in radius
              const peopleIndicesToRemove = people.map((p, i) => p.mesh.position.distanceTo(impactPos) < meteorImpactRadius ? i : -1).filter(i => i !== -1);
              for (let i = peopleIndicesToRemove.length - 1; i >= 0; i--) { const personToRemove = people.splice(peopleIndicesToRemove[i], 1)[0]; peopleGroup.remove(personToRemove.mesh); }
              // Change Climate & Update UI
@@ -650,7 +758,7 @@
         }
 
         // --- Utility Functions ---
-        function updateUIDisplay() { const currentEra = eras[currentEraIndex]; yearDisplay.textContent = year; eraDisplay.textContent = currentEra.name; populationDisplay.textContent = formatPopulation(population); climateDisplay.textContent = climateState.charAt(0).toUpperCase() + climateState.slice(1); techProgressDisplay.textContent = Math.floor(techProgress); techGoalDisplay.textContent = currentEra.techGoal === Infinity ? '∞' : currentEra.techGoal; timeSpeedDisplay.textContent = `${timeMultiplier}x`; buildingCountDisplay.textContent = buildingsGroup ? buildingsGroup.children.length : 0; peopleCountDisplay.textContent = people ? people.length : 0; }
+        function updateUIDisplay() { const currentEra = eras[currentEraIndex]; yearDisplay.textContent = year; eraDisplay.textContent = currentEra.name; populationDisplay.textContent = formatPopulation(population); climateDisplay.textContent = climateState.charAt(0).toUpperCase() + climateState.slice(1); techProgressDisplay.textContent = Math.floor(techProgress); techGoalDisplay.textContent = currentEra.techGoal === Infinity ? '∞' : currentEra.techGoal; timeSpeedDisplay.textContent = `${timeMultiplier}x`; buildingCountDisplay.textContent = buildingsGroup.children.length; peopleCountDisplay.textContent = people.length; } // Updated building count source
         function formatPopulation(num) { num = Math.max(0, num); if (num < 1000) return Math.floor(num).toString(); if (num < 1000000) return (num / 1000).toFixed(1) + 'K'; if (num < 1000000000) return (num / 1000000).toFixed(1) + 'M'; return (num / 1000000000).toFixed(1) + 'B'; }
         function showMessage(msg, duration = 3000) { messageDisplay.textContent = msg; if (messageTimeout) clearTimeout(messageTimeout); messageTimeout = setTimeout(() => { if(gameStarted) messageDisplay.textContent = ''; }, duration); }
         function changeTimeSpeed(change) { const newMultiplier = timeMultiplier * change; const minSpeed = 0.125; const maxSpeed = 64; if (newMultiplier >= minSpeed && newMultiplier <= maxSpeed) { timeMultiplier = newMultiplier; updateUIDisplay(); showMessage(`Time speed set to ${timeMultiplier}x`); } else if (newMultiplier < minSpeed) { showMessage(`Cannot slow down further (Min: ${minSpeed}x)`); } else { showMessage(`Cannot speed up further (Max: ${maxSpeed}x)`); } }
@@ -662,7 +770,23 @@
             slowTimeBtn.addEventListener('click', (e) => { e.stopPropagation(); changeTimeSpeed(0.5); });
             speedTimeBtn.addEventListener('click', (e) => { e.stopPropagation(); changeTimeSpeed(2); });
             giveFireBtn.addEventListener('click', (e) => { e.stopPropagation(); if (currentEraIndex === 0) { const boost = 50; techProgress += boost; showMessage(`Fire discovered! +${boost} Tech!`, 4000); updateUIDisplay(); } else { showMessage("Fire is already known.", 3000); } });
-            destroyHomesBtn.addEventListener('click', (e) => { e.stopPropagation(); const popLoss = Math.floor(population * 0.2); population -= popLoss; if (population < 1) population = 1; needsBuildingUpdate = true; needsPeopleUpdate = true; showMessage(`Homes destroyed! Pop -${formatPopulation(popLoss)}.`, 4000); updateUIDisplay(); });
+            destroyHomesBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const popLoss = Math.floor(population * 0.2);
+                population -= popLoss; if (population < 1) population = 1;
+                // Also remove some buildings/foundations directly
+                const buildingsToRemoveCount = Math.max(1, Math.floor(buildingsGroup.children.length * 0.1)); // Remove 10% or at least 1
+                for(let i=0; i < buildingsToRemoveCount && buildingsGroup.children.length > 0; i++) {
+                    buildingsGroup.remove(buildingsGroup.children[0]); // Remove oldest first
+                }
+                const foundationsToRemoveCount = Math.max(1, Math.floor(foundationsInProgress.length * 0.1));
+                 for(let i=0; i < foundationsToRemoveCount && foundationsInProgress.length > 0; i++) {
+                    const foundationToRemove = foundationsInProgress.shift(); // Remove oldest first
+                    scene.remove(foundationToRemove.mesh);
+                }
+                needsBuildingUpdate = true; needsPeopleUpdate = true;
+                showMessage(`Homes destroyed! Pop -${formatPopulation(popLoss)}.`, 4000); updateUIDisplay();
+            });
             inspireBtn.addEventListener('click', (e) => { e.stopPropagation(); const currentEra = eras[currentEraIndex]; const boost = currentEra.baseTechRate * 5 * (currentEraIndex + 1); techProgress += boost; showMessage(`Inspiration! +${Math.floor(boost)} tech.`, 4000); updateUIDisplay(); });
             plagueBtn.addEventListener('click', (e) => { e.stopPropagation(); const popLoss = Math.floor(population * 0.5); population -= popLoss; if (population < 1) population = 1; techProgress *= 0.8; needsBuildingUpdate = true; needsPeopleUpdate = true; showMessage(`Plague strikes! Pop -${formatPopulation(popLoss)}! Tech hindered.`, 5000); updateUIDisplay(); });
         }
@@ -671,7 +795,7 @@
          function addCameraControls() { canvasContainer.addEventListener('mousedown', onMouseDown, false); canvasContainer.addEventListener('mousemove', onMouseMove, false); canvasContainer.addEventListener('mouseup', onMouseUp, false); canvasContainer.addEventListener('mouseout', onMouseUp, false); canvasContainer.addEventListener('wheel', onMouseWheel, { passive: false }); canvasContainer.addEventListener('touchstart', onTouchStart, { passive: false }); canvasContainer.addEventListener('touchmove', onTouchMove, { passive: false }); canvasContainer.addEventListener('touchend', onTouchEnd, false); }
          function updateCameraPosition() { camera.position.x = cameraRadius * Math.sin(cameraPhi) * Math.sin(cameraTheta); camera.position.y = cameraRadius * Math.cos(cameraPhi); camera.position.z = cameraRadius * Math.sin(cameraPhi) * Math.cos(cameraTheta); camera.lookAt(cameraTarget); }
          function handleDrag(deltaX, deltaY) { cameraTheta -= deltaX * 0.005; cameraPhi -= deltaY * 0.005; const phiMin = 0.1; const phiMax = Math.PI - 0.1; cameraPhi = Math.max(phiMin, Math.min(phiMax, cameraPhi)); updateCameraPosition(); }
-         function handleZoom(deltaY) { cameraRadius += deltaY * 0.05; const radiusMin = 3; const radiusMax = 80; cameraRadius = Math.max(radiusMin, Math.min(radiusMax, cameraRadius)); updateCameraPosition(); }
+         function handleZoom(deltaY) { cameraRadius += deltaY * 0.05; const radiusMin = 3; const radiusMax = 120; cameraRadius = Math.max(radiusMin, Math.min(radiusMax, cameraRadius)); updateCameraPosition(); }
          function onMouseDown(event) { if (isSelectingMeteorTarget) return; if (event.target === canvas) { isDragging = true; previousMousePosition.x = event.clientX; previousMousePosition.y = event.clientY; } }
          function onMouseMove(event) { if (!isDragging) return; const deltaX = event.clientX - previousMousePosition.x; const deltaY = event.clientY - previousMousePosition.y; handleDrag(deltaX, deltaY); previousMousePosition.x = event.clientX; previousMousePosition.y = event.clientY; }
          function onMouseUp(event) { isDragging = false; }
@@ -687,4 +811,4 @@
     </script>
 </body>
 </html>
-
+```
